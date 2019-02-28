@@ -132,7 +132,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
     INTERNAL_LED_ON;
     ConfigInit();
-    //ModbusInit();
+    ModbusInit();
     #ifndef __DEBUG
     MX_IWDG_Init();
     WDTCheck();//Check if the system has resumed from IWDG
@@ -151,7 +151,7 @@ int main(void)
         WDTEventHandler();
         #endif
         ConfigEventHandler();
-        //ModbusEventHandler();
+        ModbusEventHandler();
 
         PIR_Handler();
         Sound_Handler();

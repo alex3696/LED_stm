@@ -10,15 +10,15 @@
 #include "crc.h"
 #include "stdlib.h"
 
-volatile USHORT   usRegInputStart = REG_INPUT_START;
 volatile USHORT   usRegInputBuf[REG_INPUT_NREGS] = {FW_VERSION};
+volatile InputReg* gInReg = (InputReg*)&usRegInputBuf;
 
-volatile USHORT   usRegHoldingStart = REG_HOLDING_START;
+
 volatile USHORT   usRegHoldingBuf[REG_HOLDING_NREGS];
+volatile Cfg* gCfg = (Cfg*)&usRegHoldingBuf;
+
 
 static uint8_t gPendingApplyCfg=0;
-
-volatile Cfg* gCfg = (Cfg*)&usRegHoldingStart;
 
 //-----------------------------------------------------------------------------
 
@@ -26,12 +26,11 @@ void ModbusInit()
 {
     eMBErrorCode    eStatus=MB_ENOERR;
     eStatus = eMBInit( MB_RTU, 0x01, 0, 460800, MB_PAR_NONE );
-    if(MB_ENOERR != eStatus )
-        assert_failed((uint8_t*)__FILE__, __LINE__);
+
+    assert_param(MB_ENOERR == eStatus);
     // Enable the Modbus Protocol Stack.
     eStatus = eMBEnable(  );
-    if(MB_ENOERR != eStatus )
-        assert_failed((uint8_t*)__FILE__, __LINE__);
+    assert_param(MB_ENOERR == eStatus);
 }
 
 //-----------------------------------------------------------------------------
@@ -111,14 +110,20 @@ eMBErrorCode eMBRegHoldingCB( UCHAR * pucRegBuffer, USHORT usAddress
 void SaveCfg();
 const StorageCfg* LoadCfg();
 void SetCfg(const StorageCfg* const );
-
 //-----------------------------------------------------------------------------
 void SysTickHandler()
 {
-    gSysTick = HAL_GetTick();
+    gInReg->mSysTick = HAL_GetTick();
 }
 //-----------------------------------------------------------------------------
-void ConfigInit()
+void InitInputReg()
+{
+    gInReg->mDimming = DimmingDown;
+    gInReg->mPrevTimHandler = 0;
+    gInReg->mLedEnableTime=0;
+}
+//-----------------------------------------------------------------------------
+void InitHoldingReg()
 {
     const StorageCfg* cfg = LoadCfg();
     if(cfg)
@@ -134,13 +139,13 @@ void ConfigInit()
         gCfg->mStoredVal_4 = 0;
         // default setup
     }
-
-    gDimming = DimmingDown;
-    gPrevTimHandler = 0;
-    gLedEnableTime=0;
-
     gPendingApplyCfg=1;
-
+}
+//-----------------------------------------------------------------------------
+void ConfigInit()
+{
+    InitInputReg();
+    InitHoldingReg();
 }
 //-----------------------------------------------------------------------------
 void ConfigEventHandler()
@@ -149,8 +154,8 @@ void ConfigEventHandler()
         return;
     ENTER_CRITICAL_SECTION();
     gPendingApplyCfg=0;
-    if(gCfg->mPendingSaveCfg)
-        SaveCfg();
+    //if(gCfg->mPendingSaveCfg)
+    //    SaveCfg();
 
     EXIT_CRITICAL_SECTION( );
 }
@@ -205,8 +210,7 @@ uint32_t EraseUserFlash(uint32_t address)
     EraseInitStruct.TypeErase   = FLASH_TYPEERASE_PAGES;
     EraseInitStruct.PageAddress = curr_address;
     EraseInitStruct.NbPages     = 1;
-    if (HAL_FLASHEx_Erase(&EraseInitStruct, &PAGEError) != HAL_OK)
-        assert_failed((uint8_t*)__FILE__, __LINE__);
+    assert_param(HAL_FLASHEx_Erase(&EraseInitStruct, &PAGEError) == HAL_OK);
 
     HAL_FLASH_Lock();
     EXIT_CRITICAL_SECTION();
@@ -304,8 +308,7 @@ void SaveCfg()
 
     }
 
-    if (err)
-        assert_failed((uint8_t*)__FILE__, __LINE__);
+    assert_param(0==err);
 
     HAL_FLASH_Lock();
     EXIT_CRITICAL_SECTION();
@@ -325,8 +328,7 @@ void WDTCheck()
 //-----------------------------------------------------------------------------
 void WDTEventHandler()
 {
-    if (HAL_IWDG_Refresh(&hiwdg) != HAL_OK)
-        assert_failed((uint8_t*)__FILE__, __LINE__);
+    assert_param(HAL_OK==HAL_IWDG_Refresh(&hiwdg));
 }
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
@@ -340,22 +342,22 @@ void IncrementTimeout()
 {
     if(300000<= gCfg->mLedTimeout)
         return;
-    if( (gSysTick-lastInc)< gCfg->mLedTimeout/2)
+    if( (gInReg->mSysTick-lastInc)< gCfg->mLedTimeout/2)
         return;
 
     gCfg->mLedTimeout*=2;
-    lastInc = gSysTick;
+    lastInc = gInReg->mSysTick;
 }
 //-----------------------------------------------------------------------------
 void DecrementTimeout()
 {
     if(gCfg->mLedTimeout<=5000)
         return;
-    if( (gSysTick-lastInc)< gCfg->mLedTimeout*2)
+    if( (gInReg->mSysTick-lastInc)< gCfg->mLedTimeout*2)
         return;
 
     gCfg->mLedTimeout/=2;
-    lastDec = gSysTick;
+    lastDec = gInReg->mSysTick;
 }
 //-----------------------------------------------------------------------------
 void EnableLed()
@@ -363,10 +365,10 @@ void EnableLed()
     if(Off==gCfg->mMode)
         return;
     IncrementTimeout();
-    gLedEnableTime = gSysTick;
+    gInReg->mLedEnableTime = gInReg->mSysTick;
 
     INTERNAL_LED_ON;
-    gDimming = DimmingUp;
+    gInReg->mDimming = DimmingUp;
 
 }
 //-----------------------------------------------------------------------------
@@ -376,7 +378,7 @@ void DisableLed()
         return;
     DecrementTimeout();
     INTERNAL_LED_OFF;
-    gDimming = DimmingDown;
+    gInReg->mDimming = DimmingDown;
 
 }
 //-----------------------------------------------------------------------------
@@ -416,9 +418,9 @@ void EventHandler(SensorEvent evt)
 //-----------------------------------------------------------------------------
 void Timer_Handler()
 {
-    if(gSysTick-gPrevTimHandler > 3)
+    if(gInReg->mSysTick-gInReg->mPrevTimHandler > 3)
     {
-        if(DimmingDown==gDimming)
+        if(DimmingDown==gInReg->mDimming)
         {
             if( 0 < htim2.Instance->CCR2 ) //__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_2) )
                 --htim2.Instance->CCR2;
@@ -428,9 +430,9 @@ void Timer_Handler()
             if(htim2.Instance->CCR2< htim2.Init.Period)
                 ++htim2.Instance->CCR2;
         }
-        gPrevTimHandler=gSysTick;
+        gInReg->mPrevTimHandler=gInReg->mSysTick;
     }
-    if(gSysTick-gLedEnableTime > gCfg->mLedTimeout )
+    if( gInReg->mSysTick - gInReg->mLedEnableTime > gCfg->mLedTimeout )
         DisableLed();
 }
 
@@ -447,14 +449,14 @@ void PIR_Handler()
     {
         if(startPIR)
         {
-            if(gSysTick - startPIR > 200)
+            if(gInReg->mSysTick - startPIR > 200)
             {
                 //INTERNAL_LED_ON;
                 EventHandler(sensPIR_ON);
             }
         }
         else
-            startPIR = gSysTick;
+            startPIR = gInReg->mSysTick;
     }
     else
     {
@@ -476,7 +478,7 @@ void Sound_Handler()
             EventHandler(sensSOUND_ON);
         }
         else
-            startSOUND = gSysTick;
+            startSOUND = gInReg->mSysTick;
     }
     else
     {
@@ -494,7 +496,7 @@ void Distance_Handler()
     {
         if(startDISTANCE)
         {
-            if(gSysTick - startDISTANCE > 1000)
+            if(gInReg->mSysTick - startDISTANCE > 1000)
             {
                 if(!ON_sent)
                 {
@@ -505,7 +507,7 @@ void Distance_Handler()
             }
         }
         else
-            startDISTANCE = gSysTick;
+            startDISTANCE = gInReg->mSysTick;
     }
     else
     {

@@ -5,25 +5,32 @@
 
 #define FW_VERSION   1
 //-----------------------------------------------------------------------------
-#define REG_HOLDING_START   0
-#define REG_HOLDING_NREGS   20
-extern volatile USHORT   usRegHoldingStart;
-extern volatile USHORT   usRegHoldingBuf[REG_HOLDING_NREGS];
+typedef struct
+{
+    uint16_t mFWVersion;
+    uint16_t mInternalTemp;
+    uint16_t mAdcVref;
+    uint32_t mSysTick;
+    uint32_t mLedEnableTime;
+    uint32_t mPrevTimHandler;
+    uint16_t mDimming;
+
+} __attribute__((aligned(2),packed)) InputReg;
+
 
 #define REG_INPUT_START 0
-#define REG_INPUT_NREGS 20
-extern volatile USHORT   usRegInputStart;
-extern volatile USHORT   usRegInputBuf[REG_INPUT_NREGS];
-#define gFWwVersion         usRegInputBuf[0]
-#define gInternalTemp       usRegInputBuf[1]
-#define gAdcVref            usRegInputBuf[2]
-#define gSysTick            (*((uint32_t*)(usRegInputBuf+3)))
-#define gPIR                usRegInputBuf[5]
-#define gDISTANCE           usRegInputBuf[6]
-#define gSOUND              usRegInputBuf[7]
-#define gLedEnableTime      (*((uint32_t*)(usRegInputBuf+8)))
-#define gDimming            usRegInputBuf[10]
-#define gPrevTimHandler     (*((uint32_t*)(usRegInputBuf+11)))
+#define REG_INPUT_NREGS sizeof(InputReg)/2
+//extern volatile USHORT   usRegInputStart;
+extern volatile USHORT    usRegInputBuf[REG_INPUT_NREGS];
+extern volatile InputReg* gInReg;
+
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+#define REG_HOLDING_START   0
+#define REG_HOLDING_NREGS   20
+//extern volatile USHORT   usRegHoldingStart;
+extern volatile USHORT   usRegHoldingBuf[REG_HOLDING_NREGS];
 
 //-----------------------------------------------------------------------------
 typedef enum{
@@ -81,7 +88,6 @@ void PIR_Handler();
 void Sound_Handler();
 void Distance_Handler();
 void Timer_Handler();
-
 
 #define INTERNAL_LED_ON     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13,GPIO_PIN_RESET)
 #define INTERNAL_LED_OFF    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13,GPIO_PIN_SET)
