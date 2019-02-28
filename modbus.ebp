@@ -31,6 +31,9 @@
 				<Assembler>
 					<Add option="-Wa,--gdwarf-2" />
 				</Assembler>
+				<Linker>
+					<Add option="-eb_use_mon" />
+				</Linker>
 			</Target>
 			<Target title="Release">
 				<Option output="bin\Release\modbus.elf" />

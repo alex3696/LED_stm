@@ -30,6 +30,7 @@
 /* ----------------------- static functions ---------------------------------*/
 UART_HandleTypeDef* huart;
 uint8_t gRxBuffer;
+void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart);
 /* ----------------------- Start implementation -----------------------------*/
 
 
@@ -41,19 +42,16 @@ vMBPortSerialEnable( BOOL xRxEnable, BOOL xTxEnable )
      * transmitter empty interrupts.
      */
     HAL_UART_StateTypeDef state = HAL_UART_GetState(huart);
-    dbg_printf("HAL_UART_State = 0x%x\n",(int)state);
+    //dbg_printf("\nHAL_UART_State = 0x%x",(int)state);
 
 	if (xRxEnable)
     {
-        dbg_printf("RxEnable \n");
-        		//HAL_GPIO_WritePin(DE_Port, DE_Pin, GPIO_PIN_RESET);
-		//__HAL_UART_ENABLE_IT(huart, UART_IT_RXNE);
-
-		HAL_UART_Receive_IT(huart, &gRxBuffer, 1);
+        mb_dbg_printf("RxEnable\n");
+        __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
+		HAL_UART_RxIdleCallback(huart);
 	}
 	else
 	{
-	    dbg_printf("RxDisable ");
         switch(state)
         {
         case HAL_UART_STATE_ERROR:
@@ -63,24 +61,21 @@ vMBPortSerialEnable( BOOL xRxEnable, BOOL xTxEnable )
             HAL_UART_AbortReceive_IT(huart);
             //HAL_UART_Abort(huart);
         default:
-            __HAL_UART_DISABLE_IT(huart, UART_IT_RXNE);
+            HAL_UART_DMAStop(&huart1);
+            __HAL_UART_DISABLE_IT(&huart1, UART_IT_IDLE);
             break;
         }
-        dbg_printf("\n");
 	}
 
 
 	if (xTxEnable)
     {
-        dbg_printf("TxEnable \n");
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13,GPIO_PIN_RESET);
-		//HAL_GPIO_WritePin(DE_Port, DE_Pin, GPIO_PIN_SET);
-		//__HAL_UART_ENABLE_IT(huart, UART_IT_TXE);
+        mb_dbg_printf("TxEnable\n");
 		HAL_UART_TxCpltCallback(huart);
 	}
 	else
 	{
-	    dbg_printf("TxDisable ");
 	    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13,GPIO_PIN_SET);
 
 		switch(state)
@@ -95,7 +90,6 @@ vMBPortSerialEnable( BOOL xRxEnable, BOOL xTxEnable )
             __HAL_UART_DISABLE_IT(huart, UART_IT_TXE);
             break;
         }
-        dbg_printf("\n");
 	}
 
 
@@ -123,7 +117,7 @@ xMBPortSerialPutByte( CHAR ucByte )
 	//huart->Instance->DR = ucByte;
     gRxBuffer=ucByte;
 	HAL_UART_Transmit_IT(huart, &gRxBuffer, 1);
-    dbg_printf("Tx>: %x \r\n", ucByte);
+    mb_dbg_printf("Tx>: %x \r\n", ucByte);
     return TRUE;
 }
 //-----------------------------------------------------------------------------
@@ -132,9 +126,8 @@ inline BOOL xMBPortSerialGetByte( CHAR * pucByte )
     /* Return the byte in the UARTs receive buffer. This function is called
      * by the protocol stack after pxMBFrameCBByteReceived( ) has been called.
      */
-    HAL_UART_Receive_IT(&huart1, &gRxBuffer, 1);
-    *pucByte = gRxBuffer;
-    //dbg_printf("Rx>: %x \r\n", *pucByte);
+    __IO uint32_t remain = huart1.hdmarx->Instance->CNDTR;
+    *pucByte = remain;
     return TRUE;
 }
 
@@ -159,27 +152,35 @@ inline BOOL xMBPortSerialGetByte( CHAR * pucByte )
     //pxMBFrameCBByteReceived(  );
 //}
 
+void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart)
+{
+    if(huart->Instance == USART1)
+        pxMBFrameCBByteReceived();
+}
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
     if(huart->Instance == USART1)
         pxMBFrameCBTransmitterEmpty();
 }
+/*
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if(huart->Instance == USART1)
-        pxMBFrameCBByteReceived();
+    {
+        gRxFirstByte = TRUE;
+        pxMBFrameCBByteReceived();// read first byte
+    }
 }
 
-/*
 void HAL_UART_TxHalfCpltCallback(UART_HandleTypeDef *huart)
 {
-    dbg_printf("HAL_UART_TxHalfCpltCallback\n");
+    dbg_printf("\nHAL_UART_TxHalfCpltCallback");
 }
 
 void HAL_UART_RxHalfCpltCallback(UART_HandleTypeDef *huart)
 {
-    dbg_printf("HAL_UART_RxHalfCpltCallback\n");
+    dbg_printf("\nHAL_UART_RxHalfCpltCallback");
 }
 */
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
@@ -191,7 +192,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     //#define HAL_UART_ERROR_ORE          0x00000008U   /*!< Overrun error       */
     //#define HAL_UART_ERROR_DMA          0x00000010U   /*!< DMA transfer error  */
     uint32_t error = HAL_UART_GetError(huart);
-    dbg_printf("HAL_UART_ErrorCallback = 0x%x\n", (unsigned int)HAL_UART_GetError(huart));
+    mb_dbg_printf("HAL_UART_ErrorCallback = 0x%x\n", (unsigned int)HAL_UART_GetError(huart));
     vMBPortTimersDisable();
     eMBRTUStop();
     //__HAL_UART_DISABLE_IT(huart, UART_IT_RXNE);
@@ -211,37 +212,21 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
         }//switch(error)
     }
 
-
-    //ENTER_CRITICAL_SECTION();
-    //eMBRTUStop();
-    //__HAL_UART_DISABLE_IT(huart, UART_IT_RXNE);
-    //__HAL_UART_DISABLE_IT(huart, UART_IT_TXE);
-    //HAL_UART_AbortTransmit_IT(huart);
-    //HAL_UART_AbortReceive_IT(huart);
-
-    //HAL_UART_Abort(huart);
-    //huart->ErrorCode=HAL_UART_ERROR_NONE;
-    //dbg_printf("UART state - %x\n", HAL_UART_GetState(huart));
-    //EXIT_CRITICAL_SECTION();
-    //HAL_UART_MspDeInit(huart);
-    //HAL_UART_MspInit(huart);
-    //MX_USART1_UART_Init();
-
     eMBRTUStart();
     //NVIC_SystemReset ();
 }
 void HAL_UART_AbortCpltCallback (UART_HandleTypeDef *huart)
 {
     UNUSED(huart);
-    dbg_printf("HAL_UART_AbortCpltCallback\n");
+    mb_dbg_printf("HAL_UART_AbortCpltCallback\n");
 }
 void HAL_UART_AbortTransmitCpltCallback (UART_HandleTypeDef *huart)
 {
     UNUSED(huart);
-    dbg_printf("HAL_UART_AbortTransmitCpltCallback\n");
+    //dbg_printf("\nHAL_UART_AbortTransmitCpltCallback\n");
 }
 void HAL_UART_AbortReceiveCpltCallback (UART_HandleTypeDef *huart)
 {
     UNUSED(huart);
-    dbg_printf("HAL_UART_AbortReceiveCpltCallback\n");
+    //dbg_printf("\nHAL_UART_AbortReceiveCpltCallback\n");
 }

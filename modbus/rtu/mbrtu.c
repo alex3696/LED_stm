@@ -176,7 +176,6 @@ eMBRTUReceive( UCHAR * pucRcvAddress, UCHAR ** pucFrame, USHORT * pusLength )
     }
     else
     {
-        //xFrameReceived = FALSE;
         eStatus = MB_EIO;
     }
 
@@ -211,8 +210,6 @@ eMBRTUSend( UCHAR ucSlaveAddress, const UCHAR * pucFrame, USHORT usLength )
         ucRTUBuf[usSndBufferCount++] = ( UCHAR )( usCRC16 & 0xFF );
         ucRTUBuf[usSndBufferCount++] = ( UCHAR )( usCRC16 >> 8 );
 
-        //usSndBufferCount++; // вот тут этот костыль обитает
-
         /* Activate the transmitter. */
         eSndState = STATE_TX_XMIT;
         vMBPortSerialEnable( FALSE, TRUE );
@@ -235,26 +232,22 @@ xMBRTUReceiveFSM( void )
 
     /* Always read the character. */
     ( void )xMBPortSerialGetByte( ( CHAR * ) & ucByte );
-    //HAL_UART_Receive_DMA(&huart1, (uint8_t*) ucRTUBuf, 256);
-    //return xTaskNeedSwitch;
 
     switch ( eRcvState )
     {
-        /* If we have received a character in the init state we have to
-         * wait until the frame is finished.
-         */
-    case STATE_RX_INIT:
-        vMBPortTimersEnable(  );
-        //printf("STATE_RX_INIT\r\n");
-        break;
-
         /* In the error state we wait until all characters in the
          * damaged frame are transmitted.
          */
     case STATE_RX_ERROR:
-        vMBPortTimersEnable(  );
-        //printf("STATE_RX_ERROR\r\n");
+        xMBRTUTimerT35Expired();
         break;
+
+        /* If we have received a character in the init state we have to
+         * wait until the frame is finished.
+         */
+    case STATE_RX_INIT:
+        //vMBPortTimersEnable(  );
+        //break;
 
         /* In the idle state we wait for a new character. If a character
          * is received the t1.5 and t3.5 timers are started and the
@@ -262,12 +255,11 @@ xMBRTUReceiveFSM( void )
          */
     case STATE_RX_IDLE:
         usRcvBufferPos = 0;
-        ucRTUBuf[usRcvBufferPos++] = ucByte;
         eRcvState = STATE_RX_RCV;
-
-        /* Enable t3.5 timers. */
-        vMBPortTimersEnable(  );
-        //printf("STATE_RX_IDLE\r\n");
+        HAL_UART_DMAStop(&huart1);
+        __HAL_UART_CLEAR_IDLEFLAG(&huart1);
+        HAL_UART_Receive_DMA(&huart1, (uint8_t*) &ucRTUBuf[usRcvBufferPos],
+                            MB_SER_PDU_SIZE_MAX-usRcvBufferPos);
         break;
 
         /* We are currently receiving a frame. Reset the timer after
@@ -276,16 +268,16 @@ xMBRTUReceiveFSM( void )
          * ignored.
          */
     case STATE_RX_RCV:
+        usRcvBufferPos+=MB_SER_PDU_SIZE_MAX-usRcvBufferPos-ucByte;
         if( usRcvBufferPos < MB_SER_PDU_SIZE_MAX )
         {
-            ucRTUBuf[usRcvBufferPos++] = ucByte;
+            //only 1 symbol idle break receiving. 3.5 or 1750us recommended
         }
         else
         {
             eRcvState = STATE_RX_ERROR;
         }
-        vMBPortTimersEnable(  );
-        //printf("STATE_RX_RCV\r\n");
+        xMBRTUTimerT35Expired();
         break;
     }
     return xTaskNeedSwitch;
@@ -311,16 +303,13 @@ xMBRTUTransmitFSM( void )
         /* check if we are finished. */
         if( usSndBufferCount != 0 )
         {
-            HAL_UART_Transmit_DMA(&huart1, (uint8_t*)pucSndBufferCur, usSndBufferCount);
-            //xMBPortSerialPutByte( ( CHAR )*pucSndBufferCur );
-            //pucSndBufferCur++;  /* next byte in sendbuffer. */
-            //usSndBufferCount--;
-            #ifdef __DEBUG
-            dbg_printf("EV_FRAME_SENT RAW ");
+            #if __DEBUG_MODBUS>0
+            mb_dbg_printf("SENDING:");
             for(uint8_t i=0;i<usSndBufferCount;i++)
-                dbg_printf(" %x",pucSndBufferCur[i]);
-            dbg_printf("\r\n");
+                mb_dbg_printf(" %x",pucSndBufferCur[i]);
+            mb_dbg_printf("\n\n");
             #endif
+            HAL_UART_Transmit_DMA(&huart1, (uint8_t*)pucSndBufferCur, usSndBufferCount);
             usSndBufferCount=0;
         }
         else
@@ -328,8 +317,8 @@ xMBRTUTransmitFSM( void )
             xNeedPoll = xMBPortEventPost( EV_FRAME_SENT );
             /* Disable transmitter. This prevents another transmit buffer
              * empty interrupt. */
-            vMBPortSerialEnable( TRUE, FALSE );
             eSndState = STATE_TX_IDLE;
+            vMBPortSerialEnable( TRUE, FALSE );
         }
         break;
     }
@@ -352,6 +341,12 @@ xMBRTUTimerT35Expired( void )
         /* A frame was received and t35 expired. Notify the listener that
          * a new frame was received. */
     case STATE_RX_RCV:
+        #if __DEBUG_MODBUS > 0
+        mb_dbg_printf("RECEIVED:");
+        for(uint8_t i=0;i<usRcvBufferPos;i++)
+            mb_dbg_printf(" %x",ucRTUBuf[i]);
+        mb_dbg_printf("\n\n");
+        #endif
         xNeedPoll = xMBPortEventPost( EV_FRAME_RECEIVED );
         break;
 

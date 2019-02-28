@@ -40,6 +40,14 @@ static volatile unsigned int gCsIrq=0;
 #define dbg_printf(...)
 #endif
 
+
+#define __DEBUG_MODBUS 0
+#if __DEBUG_MODBUS > 0
+    #define mb_dbg_printf(...) dbg_printf(__VA_ARGS__)
+#else
+    #define mb_dbg_printf(...)
+#endif
+
 typedef uint8_t BOOL;
 
 typedef unsigned char UCHAR;

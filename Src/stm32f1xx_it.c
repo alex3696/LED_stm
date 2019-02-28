@@ -62,7 +62,26 @@
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
+void HAL_UART_IRQHandlerIDLE(UART_HandleTypeDef *huart)
+{
+    uint32_t tmp_flag = __HAL_UART_GET_FLAG(huart, UART_FLAG_IDLE);
+    uint32_t tmp_it_source = __HAL_UART_GET_IT_SOURCE(huart, UART_IT_IDLE);
+    /* UART in mode Transmitter end --------------------------------------------*/
+    if((tmp_flag != RESET) && (tmp_it_source != RESET))
+    {
+        __HAL_UART_CLEAR_IDLEFLAG(huart);
+        HAL_UART_RxIdleCallback(huart);
+    }
+}
 
+ __weak void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart)
+{
+  /* Prevent unused argument(s) compilation warning */
+  UNUSED(huart);
+  /* NOTE: This function Should not be modified, when the callback is needed,
+           the HAL_UART_RxIdleCallback could be implemented in the user file
+   */
+}
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -73,15 +92,15 @@
 
 /* External variables --------------------------------------------------------*/
 extern TIM_HandleTypeDef htim2;
-extern TIM_HandleTypeDef htim4;
 extern DMA_HandleTypeDef hdma_usart1_tx;
+extern DMA_HandleTypeDef hdma_usart1_rx;
 extern UART_HandleTypeDef huart1;
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
 
 /******************************************************************************/
-/*           Cortex-M3 Processor Interruption and Exception Handlers          */ 
+/*           Cortex-M3 Processor Interruption and Exception Handlers          */
 /******************************************************************************/
 /**
   * @brief This function handles Non maskable interrupt.
@@ -231,6 +250,20 @@ void DMA1_Channel4_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles DMA1 channel5 global interrupt.
+  */
+void DMA1_Channel5_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Channel5_IRQn 0 */
+
+  /* USER CODE END DMA1_Channel5_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_usart1_rx);
+  /* USER CODE BEGIN DMA1_Channel5_IRQn 1 */
+
+  /* USER CODE END DMA1_Channel5_IRQn 1 */
+}
+
+/**
   * @brief This function handles TIM2 global interrupt.
   */
 void TIM2_IRQHandler(void)
@@ -245,29 +278,6 @@ void TIM2_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles TIM4 global interrupt.
-  */
-void TIM4_IRQHandler(void)
-{
-  /* USER CODE BEGIN TIM4_IRQn 0 */
-
-  if(__HAL_TIM_GET_FLAG(&htim4, TIM_FLAG_UPDATE) != RESET)
-  {
-    if(__HAL_TIM_GET_IT_SOURCE(&htim4, TIM_IT_UPDATE) !=RESET)
-    {
-      TIM4PeriodElapsedCallback();
-      __HAL_TIM_CLEAR_IT(&htim4, TIM_IT_UPDATE);
-      return;
-    }
-  }
-  /* USER CODE END TIM4_IRQn 0 */
-  HAL_TIM_IRQHandler(&htim4);
-  /* USER CODE BEGIN TIM4_IRQn 1 */
-
-  /* USER CODE END TIM4_IRQn 1 */
-}
-
-/**
   * @brief This function handles USART1 global interrupt.
   */
 void USART1_IRQHandler(void)
@@ -277,7 +287,7 @@ void USART1_IRQHandler(void)
   /* USER CODE END USART1_IRQn 0 */
   HAL_UART_IRQHandler(&huart1);
   /* USER CODE BEGIN USART1_IRQn 1 */
-
+  HAL_UART_IRQHandlerIDLE(&huart1);
   /* USER CODE END USART1_IRQn 1 */
 }
 
@@ -299,24 +309,24 @@ void USART1_IRQHandler(void)
 //    }
 //}
 //-----------------------------------------------------------------------------
-void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
-{
-    if(TIM2 != htim->Instance )
-        return;
-    switch(htim->Channel)
-    {
-    default:
-        break; //HAL_TIM_ACTIVE_CHANNEL_CLEARED
-    case HAL_TIM_ACTIVE_CHANNEL_1:
-        break;
-    case HAL_TIM_ACTIVE_CHANNEL_2:
-        break;
-    case HAL_TIM_ACTIVE_CHANNEL_3:
-        break;
-    case HAL_TIM_ACTIVE_CHANNEL_4:
-        break;
-    }
-
-}
+//void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
+//{
+//    if(TIM2 != htim->Instance )
+//        return;
+//    switch(htim->Channel)
+//    {
+//    default:
+//        break; //HAL_TIM_ACTIVE_CHANNEL_CLEARED
+//    case HAL_TIM_ACTIVE_CHANNEL_1:
+//        break;
+//    case HAL_TIM_ACTIVE_CHANNEL_2:
+//        break;
+//    case HAL_TIM_ACTIVE_CHANNEL_3:
+//        break;
+//    case HAL_TIM_ACTIVE_CHANNEL_4:
+//        break;
+//    }
+//
+//}
 /* USER CODE END 1 */
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

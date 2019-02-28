@@ -354,7 +354,6 @@ eMBPoll( void )
         switch ( eEvent )
         {
         case EV_READY:
-            dbg_printf("EV_READY\r\n");
             break;
 
         case EV_FRAME_RECEIVED:
@@ -367,17 +366,9 @@ eMBPoll( void )
                     ( void )xMBPortEventPost( EV_EXECUTE );
                 }
             }
-            #ifdef __DEBUG
-            dbg_printf("EV_FRAME_RECEIVED: ");
-            dbg_printf(" %x",ucRcvAddress);
-            for(uint8_t i=0;i<usLength;i++)
-                dbg_printf(" %x",ucMBFrame[i]);
-            dbg_printf("\r\n");
-            #endif
             break;
 
         case EV_EXECUTE:
-            dbg_printf("EV_EXECUTE\r\n");
             ucFunctionCode = ucMBFrame[MB_PDU_FUNC_OFF];
             eException = MB_EX_ILLEGAL_FUNCTION;
             for( i = 0; i < MB_FUNC_HANDLERS_MAX; i++ )
@@ -415,7 +406,6 @@ eMBPoll( void )
             break;
 
         case EV_FRAME_SENT:
-            dbg_printf("EV_FRAME_SENT ");
             break;
         }
     }

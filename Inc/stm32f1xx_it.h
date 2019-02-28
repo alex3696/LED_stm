@@ -39,11 +39,11 @@
 
 #ifdef __cplusplus
  extern "C" {
-#endif 
+#endif
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+void HAL_UART_RxIdleCallback(UART_HandleTypeDef *huart);
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -72,8 +72,8 @@ void DebugMon_Handler(void);
 void PendSV_Handler(void);
 void SysTick_Handler(void);
 void DMA1_Channel4_IRQHandler(void);
+void DMA1_Channel5_IRQHandler(void);
 void TIM2_IRQHandler(void);
-void TIM4_IRQHandler(void);
 void USART1_IRQHandler(void);
 /* USER CODE BEGIN EFP */
 
