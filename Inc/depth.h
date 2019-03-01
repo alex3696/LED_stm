@@ -2,7 +2,7 @@
 #define __depth_H
 
 #include "mb.h"
-
+//-----------------------------------------------------------------------------
 #define FW_VERSION   1
 //-----------------------------------------------------------------------------
 typedef struct
@@ -11,10 +11,11 @@ typedef struct
     uint16_t mInternalTemp;
     uint16_t mAdcVref;
     uint32_t mSysTick;
-    uint32_t mLedEnableTime;
+    uint32_t mEnableTime;
+    uint32_t mDecTime;
     uint32_t mPrevTimHandler;
+    uint16_t mActivity;
     uint16_t mDimming;
-
 } __attribute__((aligned(2),packed)) InputReg;
 
 
@@ -27,8 +28,22 @@ extern volatile InputReg* gInReg;
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+typedef struct
+{
+    uint16_t mMBAddress;
+    uint16_t mPendingSaveCfg;
+    uint16_t mWDTResets;
+    uint16_t mMode;
+    uint32_t mLedTimeout;
+    uint16_t mBlinkQty;
+    uint32_t mMaxTimeout;
+    uint32_t mMinTimeout;
+    uint32_t mTimHandler;
+} __attribute__((aligned(2),packed)) HoldingReg;
+
 #define REG_HOLDING_START   0
-#define REG_HOLDING_NREGS   20
+#define REG_HOLDING_NREGS   sizeof(HoldingReg)/2
 //extern volatile USHORT   usRegHoldingStart;
 extern volatile USHORT   usRegHoldingBuf[REG_HOLDING_NREGS];
 
@@ -52,19 +67,11 @@ typedef enum{
   DimmingDown=0
  ,DimmingUp
 } Dimming;
+
 //-----------------------------------------------------------------------------
 typedef struct
 {
-    uint16_t mPendingSaveCfg;
-    uint16_t mWDTResets;
-    uint16_t mMode;
-    uint32_t mLedTimeout;
-    uint16_t mStoredVal_4;
-} __attribute__((aligned(1),packed)) Cfg;
-//-----------------------------------------------------------------------------
-typedef struct
-{
-    Cfg mCfg;
+    HoldingReg mCfg;
 
     uint8_t mReserved[ 128 -12 - REG_HOLDING_NREGS * 2 ];
 

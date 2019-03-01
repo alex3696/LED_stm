@@ -15,7 +15,7 @@ volatile InputReg* gInReg = (InputReg*)&usRegInputBuf;
 
 
 volatile USHORT   usRegHoldingBuf[REG_HOLDING_NREGS];
-volatile Cfg* gCfg = (Cfg*)&usRegHoldingBuf;
+volatile HoldingReg* gCfg = (HoldingReg*)&usRegHoldingBuf;
 
 
 static uint8_t gPendingApplyCfg=0;
@@ -25,7 +25,7 @@ static uint8_t gPendingApplyCfg=0;
 void ModbusInit()
 {
     eMBErrorCode    eStatus=MB_ENOERR;
-    eStatus = eMBInit( MB_RTU, 0x01, 0, 460800, MB_PAR_NONE );
+    eStatus = eMBInit( MB_RTU, gCfg->mMBAddress, 0, 460800, MB_PAR_NONE );
 
     assert_param(MB_ENOERR == eStatus);
     // Enable the Modbus Protocol Stack.
@@ -118,9 +118,17 @@ void SysTickHandler()
 //-----------------------------------------------------------------------------
 void InitInputReg()
 {
-    gInReg->mDimming = DimmingDown;
+    memset((void*)usRegInputBuf, 0, REG_INPUT_NREGS*2 );
+
+    gInReg->mFWVersion = FW_VERSION;
+    gInReg->mInternalTemp = -1;
+    gInReg->mAdcVref = -1;
+    gInReg->mSysTick = 0;
+    gInReg->mEnableTime=0;
+    gInReg->mDecTime=0;
     gInReg->mPrevTimHandler = 0;
-    gInReg->mLedEnableTime=0;
+    gInReg->mActivity=0;
+    gInReg->mDimming = DimmingDown;
 }
 //-----------------------------------------------------------------------------
 void InitHoldingReg()
@@ -132,11 +140,16 @@ void InitHoldingReg()
     {
         memset((void*)usRegHoldingBuf, 0, REG_HOLDING_NREGS*2 );
         // default setup
+        gCfg->mMBAddress=1;
         gCfg->mPendingSaveCfg = 0;
         gCfg->mWDTResets = 0;
         gCfg->mMode = Auto;
         gCfg->mLedTimeout = 5000;
-        gCfg->mStoredVal_4 = 0;
+        gCfg->mBlinkQty=5;
+
+        gCfg->mMaxTimeout=300000;
+        gCfg->mMinTimeout=5000;
+        gCfg->mTimHandler=2;
         // default setup
     }
     gPendingApplyCfg=1;
@@ -333,53 +346,63 @@ void WDTEventHandler()
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
-
-uint32_t lastInc=0;
-uint32_t lastDec=0;
+void ClrActivity()
+{
+    gInReg->mActivity=0;
+    dbg_printf("%lu ClrActivity\n", gInReg->mSysTick);
+}
+//-----------------------------------------------------------------------------
+void IncActivity()
+{
+    if(UINT16_MAX > gInReg->mActivity)
+        gInReg->mActivity++;
+    dbg_printf("%lu IncActivity %d\n", gInReg->mSysTick, gInReg->mActivity);
+}
 
 //-----------------------------------------------------------------------------
 void IncrementTimeout()
 {
-    if(300000<= gCfg->mLedTimeout)
+    if(gCfg->mMaxTimeout <= gCfg->mLedTimeout)
         return;
-    if( (gInReg->mSysTick-lastInc)< gCfg->mLedTimeout/2)
-        return;
-
     gCfg->mLedTimeout*=2;
-    lastInc = gInReg->mSysTick;
+    dbg_printf("%lu IncTimeout %lu\n",gInReg->mSysTick, gCfg->mLedTimeout);
 }
 //-----------------------------------------------------------------------------
 void DecrementTimeout()
 {
-    if(gCfg->mLedTimeout<=5000)
-        return;
-    if( (gInReg->mSysTick-lastInc)< gCfg->mLedTimeout*2)
+    if(gCfg->mLedTimeout<= gCfg->mMinTimeout)
         return;
 
+    if(gInReg->mSysTick - gInReg->mDecTime < gCfg->mLedTimeout )
+        return;
+
+    gInReg->mDecTime = gInReg->mSysTick;
     gCfg->mLedTimeout/=2;
-    lastDec = gInReg->mSysTick;
+    if(gCfg->mLedTimeout<gCfg->mMinTimeout)
+        gCfg->mLedTimeout=gCfg->mMinTimeout;
+    dbg_printf("%lu DecTimeout %lu\n",gInReg->mSysTick, gCfg->mLedTimeout);
 }
 //-----------------------------------------------------------------------------
 void EnableLed()
 {
     if(Off==gCfg->mMode)
         return;
-    IncrementTimeout();
-    gInReg->mLedEnableTime = gInReg->mSysTick;
-
+    gInReg->mEnableTime = gInReg->mSysTick;
     INTERNAL_LED_ON;
     gInReg->mDimming = DimmingUp;
-
+    ClrActivity();
+    dbg_printf("%lu EnableLED Time=%lu Timeout=%lu \n"
+               ,gInReg->mSysTick, gInReg->mEnableTime, gCfg->mLedTimeout);
 }
 //-----------------------------------------------------------------------------
 void DisableLed()
 {
-    if(On==gCfg->mMode)
+    if(On==gCfg->mMode || DimmingDown==gInReg->mDimming)
         return;
-    DecrementTimeout();
     INTERNAL_LED_OFF;
     gInReg->mDimming = DimmingDown;
-
+    dbg_printf("%lu DisableLED \n"
+               ,gInReg->mSysTick);
 }
 //-----------------------------------------------------------------------------
 void ModeHandler()
@@ -390,10 +413,9 @@ void ModeHandler()
 
     switch(gCfg->mMode)
     {
-        default:
-        case On:  EnableLed();
-        case Auto: EnableLed(); break;
-        case Off: DisableLed(); break;
+        default: //case On:  EnableLed();
+        case Auto:  EnableLed(); break;
+        case Off:   DisableLed(); break;
     }
 }
 //-----------------------------------------------------------------------------
@@ -407,33 +429,61 @@ void EventHandler(SensorEvent evt)
         ModeHandler();
         break;
     case sensSOUND_ON:
-        if(htim2.Instance->CCR2>0)
-            EnableLed();
+        if(htim2.Instance->CCR2)
+            IncActivity();
         break;
     case sensPIR_ON:
-        EnableLed();
+        if(htim2.Instance->CCR2)
+            IncActivity();
+        else
+            EnableLed();
         break;
     }//switch(evt)
 }
 //-----------------------------------------------------------------------------
+static uint16_t blinkOffQty=0;
+
 void Timer_Handler()
 {
-    if(gInReg->mSysTick-gInReg->mPrevTimHandler > 3)
+    if(gInReg->mSysTick-gInReg->mPrevTimHandler < gCfg->mTimHandler)
+        return;
+
+    if(DimmingDown==gInReg->mDimming)
     {
-        if(DimmingDown==gInReg->mDimming)
+        DecrementTimeout();
+        if(blinkOffQty && htim2.Instance->CCR2< htim2.Init.Period/2)
         {
-            if( 0 < htim2.Instance->CCR2 ) //__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_2) )
-                --htim2.Instance->CCR2;
+            htim2.Instance->CCR2 = htim2.Init.Period;
+            blinkOffQty--;
         }
-        else
-        {
-            if(htim2.Instance->CCR2< htim2.Init.Period)
-                ++htim2.Instance->CCR2;
-        }
-        gInReg->mPrevTimHandler=gInReg->mSysTick;
+
+
+        if( 0 < htim2.Instance->CCR2 ) //__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_2) )
+            --htim2.Instance->CCR2;
     }
-    if( gInReg->mSysTick - gInReg->mLedEnableTime > gCfg->mLedTimeout )
-        DisableLed();
+    else
+    {
+        if( gInReg->mSysTick - gInReg->mEnableTime > gCfg->mLedTimeout )
+        {
+            const uint16_t need_activity = gCfg->mLedTimeout/gCfg->mMinTimeout;
+
+            if( need_activity < gInReg->mActivity )
+            {
+                IncrementTimeout();
+                EnableLed();
+            }
+            else
+            {
+                blinkOffQty=gCfg->mBlinkQty;
+                DisableLed();
+            }
+        }
+
+        if(htim2.Instance->CCR2< htim2.Init.Period)
+            ++htim2.Instance->CCR2;
+    }
+    gInReg->mPrevTimHandler=gInReg->mSysTick;
+
 }
 
 //-----------------------------------------------------------------------------
@@ -445,7 +495,8 @@ static uint32_t startDISTANCE;
 //-----------------------------------------------------------------------------
 void PIR_Handler()
 {
-    if( GPIO_PIN_SET == HAL_GPIO_ReadPin (PIR_GPIO_Port, PIR_Pin))
+    const GPIO_PinState pir_state = HAL_GPIO_ReadPin (PIR_GPIO_Port, PIR_Pin);
+    if( GPIO_PIN_SET == pir_state)
     {
         if(startPIR)
         {
@@ -470,7 +521,8 @@ void PIR_Handler()
 //-----------------------------------------------------------------------------
 void Sound_Handler()
 {
-    if( GPIO_PIN_RESET == HAL_GPIO_ReadPin (SOUND_GPIO_Port, SOUND_Pin))
+    const GPIO_PinState sound_state = HAL_GPIO_ReadPin (SOUND_GPIO_Port, SOUND_Pin);
+    if( GPIO_PIN_RESET == sound_state)
     {
         if(startSOUND)
         {
@@ -492,7 +544,8 @@ BOOL ON_sent=FALSE;
 BOOL OFF_sent=FALSE;
 void Distance_Handler()
 {
-    if( GPIO_PIN_RESET == HAL_GPIO_ReadPin (DISTANCE_GPIO_Port, DISTANCE_Pin))
+    const GPIO_PinState distance_state = HAL_GPIO_ReadPin (DISTANCE_GPIO_Port, DISTANCE_Pin);
+    if( GPIO_PIN_RESET == distance_state)
     {
         if(startDISTANCE)
         {
