@@ -127,6 +127,7 @@ void InitInputReg()
     gInReg->mEnableTime=0;
     gInReg->mDecTime=0;
     gInReg->mPrevTimHandler = 0;
+    gInReg->mLedTimeout = 2000;
     gInReg->mActivity=0;
     gInReg->mDimming = DimmingDown;
 }
@@ -144,12 +145,12 @@ void InitHoldingReg()
         gCfg->mPendingSaveCfg = 0;
         gCfg->mWDTResets = 0;
         gCfg->mMode = Auto;
-        gCfg->mLedTimeout = 5000;
-        gCfg->mBlinkQty=5;
 
-        gCfg->mMaxTimeout=300000;
-        gCfg->mMinTimeout=5000;
-        gCfg->mTimHandler=2;
+        gCfg->mBlinkQty=4;
+
+        gCfg->mMaxTimeout=256000;
+        gCfg->mMinTimeout=2000;
+        gCfg->mTimHandler=10;
         // default setup
     }
     gPendingApplyCfg=1;
@@ -157,8 +158,8 @@ void InitHoldingReg()
 //-----------------------------------------------------------------------------
 void ConfigInit()
 {
-    InitInputReg();
     InitHoldingReg();
+    InitInputReg();
 }
 //-----------------------------------------------------------------------------
 void ConfigEventHandler()
@@ -362,37 +363,39 @@ void IncActivity()
 //-----------------------------------------------------------------------------
 void IncrementTimeout()
 {
-    if(gCfg->mMaxTimeout <= gCfg->mLedTimeout)
+    if(gCfg->mMaxTimeout <= gInReg->mLedTimeout)
         return;
-    gCfg->mLedTimeout*=2;
-    dbg_printf("%lu IncTimeout %lu\n",gInReg->mSysTick, gCfg->mLedTimeout);
+    gInReg->mLedTimeout*=2;
+    //if(gInReg->mLedTimeout>gCfg->mMaxTimeout)
+    //    gInReg->mLedTimeout=gCfg->mMaxTimeout;
+    dbg_printf("%lu IncTimeout %lu\n",gInReg->mSysTick, gInReg->mLedTimeout);
 }
 //-----------------------------------------------------------------------------
 void DecrementTimeout()
 {
-    if(gCfg->mLedTimeout<= gCfg->mMinTimeout)
+    if(gInReg->mLedTimeout<= gCfg->mMinTimeout)
         return;
 
-    if(gInReg->mSysTick - gInReg->mDecTime < gCfg->mLedTimeout )
+    if(gInReg->mSysTick - gInReg->mDecTime < gInReg->mLedTimeout )
         return;
 
     gInReg->mDecTime = gInReg->mSysTick;
-    gCfg->mLedTimeout/=2;
-    if(gCfg->mLedTimeout<gCfg->mMinTimeout)
-        gCfg->mLedTimeout=gCfg->mMinTimeout;
-    dbg_printf("%lu DecTimeout %lu\n",gInReg->mSysTick, gCfg->mLedTimeout);
+    gInReg->mLedTimeout/=2;
+    if(gInReg->mLedTimeout<gCfg->mMinTimeout)
+        gInReg->mLedTimeout=gCfg->mMinTimeout;
+    dbg_printf("%lu DecTimeout %lu\n",gInReg->mSysTick, gInReg->mLedTimeout);
 }
 //-----------------------------------------------------------------------------
 void EnableLed()
 {
     if(Off==gCfg->mMode)
         return;
+
     gInReg->mEnableTime = gInReg->mSysTick;
     INTERNAL_LED_ON;
     gInReg->mDimming = DimmingUp;
-    ClrActivity();
     dbg_printf("%lu EnableLED Time=%lu Timeout=%lu \n"
-               ,gInReg->mSysTick, gInReg->mEnableTime, gCfg->mLedTimeout);
+               ,gInReg->mSysTick, gInReg->mEnableTime, gInReg->mLedTimeout);
 }
 //-----------------------------------------------------------------------------
 void DisableLed()
@@ -415,7 +418,10 @@ void ModeHandler()
     {
         default: //case On:  EnableLed();
         case Auto:  EnableLed(); break;
-        case Off:   DisableLed(); break;
+        case Off:
+            gInReg->mLedTimeout = gCfg->mMinTimeout;
+            DisableLed();
+        break;
     }
 }
 //-----------------------------------------------------------------------------
@@ -435,8 +441,7 @@ void EventHandler(SensorEvent evt)
     case sensPIR_ON:
         if(htim2.Instance->CCR2)
             IncActivity();
-        else
-            EnableLed();
+        EnableLed();
         break;
     }//switch(evt)
 }
@@ -451,7 +456,7 @@ void Timer_Handler()
     if(DimmingDown==gInReg->mDimming)
     {
         DecrementTimeout();
-        if(blinkOffQty && htim2.Instance->CCR2< htim2.Init.Period/2)
+        if(blinkOffQty && htim2.Instance->CCR2 < (htim2.Init.Period/4)*3)
         {
             htim2.Instance->CCR2 = htim2.Init.Period;
             blinkOffQty--;
@@ -463,13 +468,13 @@ void Timer_Handler()
     }
     else
     {
-        if( gInReg->mSysTick - gInReg->mEnableTime > gCfg->mLedTimeout )
+        if( gInReg->mSysTick - gInReg->mEnableTime > gInReg->mLedTimeout )
         {
-            const uint16_t need_activity = gCfg->mLedTimeout/gCfg->mMinTimeout;
-
-            if( need_activity < gInReg->mActivity )
+            if(gInReg->mActivity)
             {
-                IncrementTimeout();
+                const uint16_t need_act = (gInReg->mLedTimeout/gCfg->mMinTimeout)*2;
+                if( need_act < gInReg->mActivity )
+                    IncrementTimeout();
                 EnableLed();
             }
             else
@@ -477,10 +482,11 @@ void Timer_Handler()
                 blinkOffQty=gCfg->mBlinkQty;
                 DisableLed();
             }
+            ClrActivity();
         }
 
         if(htim2.Instance->CCR2< htim2.Init.Period)
-            ++htim2.Instance->CCR2;
+            htim2.Instance->CCR2+=4;
     }
     gInReg->mPrevTimHandler=gInReg->mSysTick;
 

@@ -14,6 +14,7 @@ typedef struct
     uint32_t mEnableTime;
     uint32_t mDecTime;
     uint32_t mPrevTimHandler;
+    uint32_t mLedTimeout;
     uint16_t mActivity;
     uint16_t mDimming;
 } __attribute__((aligned(2),packed)) InputReg;
@@ -35,7 +36,6 @@ typedef struct
     uint16_t mPendingSaveCfg;
     uint16_t mWDTResets;
     uint16_t mMode;
-    uint32_t mLedTimeout;
     uint16_t mBlinkQty;
     uint32_t mMaxTimeout;
     uint32_t mMinTimeout;
