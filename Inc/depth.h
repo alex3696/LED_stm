@@ -37,6 +37,8 @@ typedef struct
     uint16_t mWDTResets;
     uint16_t mMode;
     uint16_t mBlinkQty;
+    uint16_t mDimmUp;
+    uint16_t mDimmDown;
     uint32_t mMaxTimeout;
     uint32_t mMinTimeout;
     uint32_t mTimHandler;

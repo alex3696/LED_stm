@@ -146,11 +146,13 @@ void InitHoldingReg()
         gCfg->mWDTResets = 0;
         gCfg->mMode = Auto;
 
-        gCfg->mBlinkQty=4;
+        gCfg->mBlinkQty=10;
+        gCfg->mDimmUp=2;
+        gCfg->mDimmDown=1;
 
-        gCfg->mMaxTimeout=256000;
+        gCfg->mMaxTimeout=128000;
         gCfg->mMinTimeout=2000;
-        gCfg->mTimHandler=10;
+        gCfg->mTimHandler=5;
         // default setup
     }
     gPendingApplyCfg=1;
@@ -168,8 +170,8 @@ void ConfigEventHandler()
         return;
     ENTER_CRITICAL_SECTION();
     gPendingApplyCfg=0;
-    //if(gCfg->mPendingSaveCfg)
-    //    SaveCfg();
+    if(gCfg->mPendingSaveCfg)
+        SaveCfg();
 
     EXIT_CRITICAL_SECTION( );
 }
@@ -417,10 +419,13 @@ void ModeHandler()
     switch(gCfg->mMode)
     {
         default: //case On:  EnableLed();
-        case Auto:  EnableLed(); break;
+        case Auto:
+            EnableLed();
+        break;
         case Off:
             gInReg->mLedTimeout = gCfg->mMinTimeout;
             DisableLed();
+            htim2.Instance->CCR2 = 1;
         break;
     }
 }
@@ -441,6 +446,8 @@ void EventHandler(SensorEvent evt)
     case sensPIR_ON:
         if(htim2.Instance->CCR2)
             IncActivity();
+        else
+            ClrActivity();
         EnableLed();
         break;
     }//switch(evt)
@@ -456,7 +463,7 @@ void Timer_Handler()
     if(DimmingDown==gInReg->mDimming)
     {
         DecrementTimeout();
-        if(blinkOffQty && htim2.Instance->CCR2 < (htim2.Init.Period/4)*3)
+        if(blinkOffQty && htim2.Instance->CCR2 < (htim2.Init.Period/10)*9)
         {
             htim2.Instance->CCR2 = htim2.Init.Period;
             blinkOffQty--;
@@ -464,7 +471,13 @@ void Timer_Handler()
 
 
         if( 0 < htim2.Instance->CCR2 ) //__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_2) )
-            --htim2.Instance->CCR2;
+        {
+            if(htim2.Instance->CCR2 >= gCfg->mDimmDown)
+                htim2.Instance->CCR2 -= gCfg->mDimmDown;
+            else
+                htim2.Instance->CCR2 = 0;
+        }
+
     }
     else
     {
@@ -486,8 +499,12 @@ void Timer_Handler()
         }
 
         if(htim2.Instance->CCR2< htim2.Init.Period)
-            htim2.Instance->CCR2+=4;
-    }
+        {
+            htim2.Instance->CCR2 += gCfg->mDimmUp;
+            if(htim2.Instance->CCR2 > htim2.Init.Period)
+                htim2.Instance->CCR2=htim2.Init.Period;
+        }
+    }//if(DimmingDown==gInReg->mDimming)
     gInReg->mPrevTimHandler=gInReg->mSysTick;
 
 }
